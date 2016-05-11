@@ -39,7 +39,9 @@ from models import TeeShirtSize
 from models import Session
 from models import SessionForm
 from models import SessionForms
+from models import SessionType
 from models import Speaker
+from models import SpeakerForm
 
 from settings import WEB_CLIENT_ID
 from settings import ANDROID_CLIENT_ID
@@ -339,11 +341,21 @@ class ConferenceApi(remote.Service):
 
 # - - - Session objects - - - - - - - - - - - - - - - - -
 
-    @endpoints.method(SESSION_POST_REQUEST, SessionForm, path='session',
-            http_method='POST', name='createSession')
-    def createSession(self, request):
-        """Create new session."""
-        return self._createSessionObject(request)
+    def _copySessionToForm(self, session):
+        """Copy relevant fields from Session to SessionForm."""
+        sf = SessionForm()
+        for field in sf.all_fields():
+            if hasattr(session, field.name):
+                if field.name == 'typeOfSession':
+                    setattr(sf, field.name, SessionType.NOT_SPECIFIED) #str(getattr(SessionType, getattr(session, field.name))))
+                elif field.name.endswith('Date'):
+                    setattr(sf, field.name, str(getattr(session, field.name)))
+                elif field.name.endswith('Time'):
+                    setattr(sf, field.name, str(getattr(session, field.name)))
+                else:
+                    setattr(sf, field.name, getattr(session, field.name))
+        sf.check_initialized()
+        return sf
 
 
     def _createSessionObject(self, request):
@@ -355,8 +367,8 @@ class ConferenceApi(remote.Service):
         user_id = getUserId(user)
 
         if not request.websafeConferenceKey:
-            raise endpoints.BadRequestException("Session 'websafeConferenceKey' field required")
-        c_key = ndb.Key(urlsafe=websafeConferenceKey)
+            raise endpoints.BadRequestException("Session 'websafeConferenceKey' argument required")
+        c_key = ndb.Key(urlsafe=request.websafeConferenceKey)
         conf = c_key.get()
 
         conf_organizer_id = conf.organizerUserId
@@ -368,14 +380,14 @@ class ConferenceApi(remote.Service):
 
         # copy SessionForm/ProtoRPC Message into dict
         data = {field.name: getattr(request, field.name) for field in request.all_fields()}
-        del data['websafeKey']
+        del data['websafeConferenceKey']
 
         # convert dates from strings to Date objects
         if data['startDate']:
             data['startDate'] = datetime.strptime(data['startDate'][:10], "%Y-%m-%d").date()
 
         s_id = Session.allocate_ids(size=1, parent=c_key)[0]
-        s_key = ndb.Key(Session, s_id, parent=p_key)
+        s_key = ndb.Key(Session, s_id, parent=c_key)
         data['key'] = s_key
 
         # create Session, send email to organizer confirming
@@ -385,7 +397,52 @@ class ConferenceApi(remote.Service):
             'sessionInfo': repr(request)},
             url='/tasks/send_session_confirmation_email'
         )
+        return self._copySessionToForm(Session)
+
+
+    @endpoints.method(SESSION_POST_REQUEST, SessionForm, path='session',
+            http_method='POST', name='createSession')
+    def createSession(self, request):
+        """Create new session."""
+        return self._createSessionObject(request)
+
+
+# - - - Speaker objects - - - - - - - - - - - - - - - - - - -
+    
+    def _copySpeakerToForm(self, speaker):
+        """Copy relevant fields from Speaker to SpeakerForm."""
+        spf = SpeakerForm()
+        for field in spf.all_fields():
+            if hasattr(speaker, field.name):
+                setattr(spf, field.name, getattr(speaker, field.name))
+        spf.check_initialized()
+        return spf
+
+
+    def _createSpeakerObject(self, request):
+        """Create or update Speaker object, returning SpeakerForm/request."""
+        # preload necessary data items
+        user = endpoints.get_current_user()
+        if not user:
+            raise endpoints.UnauthorizedException('Authorization required')
+        user_id = getUserId(user)
+
+        if not request.name:
+            raise endpoints.BadRequestException("Speaker 'name' field required")
+
+        # copy SpeakerForm/ProtoRPC Message into dict
+        data = {field.name: getattr(request, field.name) for field in request.all_fields()}
+
+        # create Speaker
+        Speaker(**data).put()
         return request
+
+
+    @endpoints.method(SpeakerForm, SpeakerForm, path='speaker',
+            http_method='POST', name='createSpeaker')
+    def createSpeaker(self, request):
+        """Create new speaker."""
+        return self._createSpeakerObject(request)
 
 
 # - - - Profile objects - - - - - - - - - - - - - - - - - - -
