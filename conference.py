@@ -36,6 +36,10 @@ from models import ConferenceForms
 from models import ConferenceQueryForm
 from models import ConferenceQueryForms
 from models import TeeShirtSize
+from models import Session
+from models import SessionForm
+from models import SessionForms
+from models import Speaker
 
 from settings import WEB_CLIENT_ID
 from settings import ANDROID_CLIENT_ID
@@ -81,6 +85,11 @@ CONF_GET_REQUEST = endpoints.ResourceContainer(
 
 CONF_POST_REQUEST = endpoints.ResourceContainer(
     ConferenceForm,
+    websafeConferenceKey=messages.StringField(1),
+)
+
+SESSION_POST_REQUEST = endpoints.ResourceContainer(
+    SessionForm,
     websafeConferenceKey=messages.StringField(1),
 )
 
@@ -326,6 +335,57 @@ class ConferenceApi(remote.Service):
                 items=[self._copyConferenceToForm(conf, names[conf.organizerUserId]) for conf in \
                 conferences]
         )
+
+
+# - - - Session objects - - - - - - - - - - - - - - - - -
+
+    @endpoints.method(SESSION_POST_REQUEST, SessionForm, path='session',
+            http_method='POST', name='createSession')
+    def createSession(self, request):
+        """Create new session."""
+        return self._createSessionObject(request)
+
+
+    def _createSessionObject(self, request):
+        """Create or update Session object, returning SessionForm/request."""
+        # preload necessary data items
+        user = endpoints.get_current_user()
+        if not user:
+            raise endpoints.UnauthorizedException('Authorization required')
+        user_id = getUserId(user)
+
+        if not request.websafeConferenceKey:
+            raise endpoints.BadRequestException("Session 'websafeConferenceKey' field required")
+        c_key = ndb.Key(urlsafe=websafeConferenceKey)
+        conf = c_key.get()
+
+        conf_organizer_id = conf.organizerUserId
+        if user_id != conf_organizer_id:
+            raise endpoints.ForbiddenException("Only conference organizer may add sessions")
+        
+        if not request.name:
+            raise endpoints.BadRequestException("Session 'name' field required")
+
+        # copy SessionForm/ProtoRPC Message into dict
+        data = {field.name: getattr(request, field.name) for field in request.all_fields()}
+        del data['websafeKey']
+
+        # convert dates from strings to Date objects
+        if data['startDate']:
+            data['startDate'] = datetime.strptime(data['startDate'][:10], "%Y-%m-%d").date()
+
+        s_id = Session.allocate_ids(size=1, parent=c_key)[0]
+        s_key = ndb.Key(Session, s_id, parent=p_key)
+        data['key'] = s_key
+
+        # create Session, send email to organizer confirming
+        # creation of Session & return (modified) SessionForm
+        Session(**data).put()
+        taskqueue.add(params={'email': user.email(),
+            'sessionInfo': repr(request)},
+            url='/tasks/send_session_confirmation_email'
+        )
+        return request
 
 
 # - - - Profile objects - - - - - - - - - - - - - - - - - - -
