@@ -38,7 +38,7 @@ class SendConfirmationEmailHandler(webapp2.RequestHandler):
         )
 
 
-class SendSessiononfirmationEmailHandler(webapp2.RequestHandler):
+class SendSessionConfirmationEmailHandler(webapp2.RequestHandler):
     def post(self):
         """Send email confirming Session creation."""
         mail.send_mail(

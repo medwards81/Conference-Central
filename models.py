@@ -90,25 +90,24 @@ class SpeakerForm(messages.Message):
 
 class Session(ndb.Model):
     """Session -- Session object"""
-    name            = ndb.StringProperty(required=True)
-    higlights       = ndb.StringProperty()
-    conferenceId    = ndb.StringProperty()
-    speaker         = ndb.StringProperty(repeated=True)
-    duration        = ndb.StringProperty()
-    typeOfSession   = ndb.StringProperty(default='NOT_SPECIFIED')
-    startDate       = ndb.DateProperty()
-    startTime       = ndb.TimeProperty()
+    name          = ndb.StringProperty(required=True)
+    higlights     = ndb.StringProperty()
+    speaker       = ndb.StringProperty(repeated=True)
+    duration      = ndb.StringProperty()
+    typeOfSession = ndb.StringProperty(default='NOT_SPECIFIED')
+    startDate     = ndb.DateProperty()
+    startTime     = ndb.TimeProperty()
 
 class SessionForm(messages.Message):
     """SessionForm -- Session outbound form message"""
-    name            = messages.StringField(1)
-    higlights       = messages.StringField(2)
-    conferenceId    = messages.StringField(3)
-    speaker         = messages.StringField(4, repeated=True)
-    duration        = messages.StringField(5)
-    typeOfSession   = messages.EnumField('SessionType', 6)
-    startDate       = messages.StringField(7)
-    startTime       = messages.StringField(8)
+    name           = messages.StringField(1)
+    higlights      = messages.StringField(2)
+    speaker        = messages.StringField(3, repeated=True)
+    duration       = messages.StringField(4)
+    typeOfSession  = messages.StringField(5)
+    startDate      = messages.StringField(6)
+    startTime      = messages.StringField(7)
+    conferenceName = messages.StringField(8)
 
 class SessionForms(messages.Message):
     """SessionForms -- multiple Session outbound form message"""

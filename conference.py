@@ -7,6 +7,7 @@ conference.py -- Udacity conference server-side Python App Engine API;
 $Id: conference.py,v 1.25 2014/05/24 23:42:19 wesc Exp wesc $
 
 created by wesc on 2014 apr 21
+updated by Marc Edwards on 2016 may 12
 
 """
 
@@ -93,6 +94,22 @@ CONF_POST_REQUEST = endpoints.ResourceContainer(
 SESSION_POST_REQUEST = endpoints.ResourceContainer(
     SessionForm,
     websafeConferenceKey=messages.StringField(1),
+)
+
+SESSIONS_BY_SPEAKER_GET_REQUEST = endpoints.ResourceContainer(
+    message_types.VoidMessage,
+    websafeSpeakerKey=messages.StringField(1),
+)
+
+CONFERENCE_SESSIONS_GET_REQUEST = endpoints.ResourceContainer(
+    message_types.VoidMessage,
+    websafeConferenceKey=messages.StringField(1),
+)
+
+CONFERENCE_SESSIONS_BY_TYPE_GET_REQUEST = endpoints.ResourceContainer(
+    message_types.VoidMessage,
+    websafeConferenceKey=messages.StringField(1),
+	typeOfSession=messages.StringField(2),
 )
 
 # - - - - - - - - - - - - - - - - - - - - - - - - - - - - - -
@@ -346,14 +363,30 @@ class ConferenceApi(remote.Service):
         sf = SessionForm()
         for field in sf.all_fields():
             if hasattr(session, field.name):
-                if field.name == 'typeOfSession':
-                    setattr(sf, field.name, SessionType.NOT_SPECIFIED) #str(getattr(SessionType, getattr(session, field.name))))
-                elif field.name.endswith('Date'):
+                # convert Date and Time to strings; else just copy others
+                if field.name.endswith('Date'):
                     setattr(sf, field.name, str(getattr(session, field.name)))
                 elif field.name.endswith('Time'):
                     setattr(sf, field.name, str(getattr(session, field.name)))
                 else:
                     setattr(sf, field.name, getattr(session, field.name))
+
+        conf_key = session.key.parent()
+        if conf_key:
+            conf = conf_key.get()
+            setattr(sf, 'conferenceName', conf.name)
+        sf.check_initialized()
+        return sf
+
+
+    def _copySessionRequestToForm(self, request):
+        """Copy relevant fields from Session to SessionForm."""
+        sf = SessionForm()
+        for field in sf.all_fields():
+            if hasattr(request, field.name):
+                rval = getattr(request, field.name)
+                if rval:
+                    setattr(sf, field.name, rval)
         sf.check_initialized()
         return sf
 
@@ -371,8 +404,8 @@ class ConferenceApi(remote.Service):
         c_key = ndb.Key(urlsafe=request.websafeConferenceKey)
         conf = c_key.get()
 
-        conf_organizer_id = conf.organizerUserId
-        if user_id != conf_organizer_id:
+        # user must have also created the conference in order to add sessions
+        if user_id != conf.organizerUserId:
             raise endpoints.ForbiddenException("Only conference organizer may add sessions")
         
         if not request.name:
@@ -386,6 +419,10 @@ class ConferenceApi(remote.Service):
         if data['startDate']:
             data['startDate'] = datetime.strptime(data['startDate'][:10], "%Y-%m-%d").date()
 
+        # convert times from strings to Time objects
+        if data['startTime']:
+            data['startTime'] = datetime.strptime(data['startTime'], "%H:%M").time()
+
         s_id = Session.allocate_ids(size=1, parent=c_key)[0]
         s_key = ndb.Key(Session, s_id, parent=c_key)
         data['key'] = s_key
@@ -397,7 +434,7 @@ class ConferenceApi(remote.Service):
             'sessionInfo': repr(request)},
             url='/tasks/send_session_confirmation_email'
         )
-        return self._copySessionToForm(Session)
+        return self._copySessionRequestToForm(request)
 
 
     @endpoints.method(SESSION_POST_REQUEST, SessionForm, path='session',
@@ -405,6 +442,53 @@ class ConferenceApi(remote.Service):
     def createSession(self, request):
         """Create new session."""
         return self._createSessionObject(request)
+
+
+    @endpoints.method(SESSIONS_BY_SPEAKER_GET_REQUEST, SessionForms,
+            path='sessionsBySpeaker/{websafeSpeakerKey}',
+            http_method='GET', name='getSessionsBySpeaker')
+    def getSessionsBySpeaker(self, request):
+        """Return requested sessions (by websafeSpeakerKey)."""
+        if not request.websafeSpeakerKey:
+            raise endpoints.BadRequestException("Session 'websafeSpeakerKey' field required")
+
+        sessions = Session.query(Session.speaker == request.websafeSpeakerKey)
+        # return set of SessionForm objects per Speaker
+        return SessionForms(
+            items=[self._copySessionToForm(s) for s in sessions]
+        )
+
+
+    @endpoints.method(CONFERENCE_SESSIONS_GET_REQUEST, SessionForms,
+            path='conferenceSessions/{websafeConferenceKey}',
+            http_method='GET', name='getConferenceSessions')
+    def getConferenceSessions(self, request):
+        """Return requested sessions (by websafeConferenceKey)."""
+        if not request.websafeConferenceKey:
+            raise endpoints.BadRequestException("Session 'websafeConferenceKey' field required")
+
+        conf_key = ndb.Key(urlsafe=request.websafeConferenceKey)
+        sessions = Session.query(ancestor=conf_key)
+        # return set of SessionForm objects per Speaker
+        return SessionForms(
+            items=[self._copySessionToForm(s) for s in sessions]
+        )
+
+
+    @endpoints.method(CONFERENCE_SESSIONS_BY_TYPE_GET_REQUEST, SessionForms,
+            path='conferenceSessionsByType/{websafeConferenceKey}/{typeOfSession}',
+            http_method='GET', name='getConferenceSessionsByType')
+    def getConferenceSessionsByType(self, request):
+        """Return requested sessions (by websafeConferenceKey and typeOfSession)."""
+        if not request.websafeConferenceKey:
+            raise endpoints.BadRequestException("Session 'websafeConferenceKey' field required")
+
+        conf_key = ndb.Key(urlsafe=request.websafeConferenceKey)
+        sessions = Session.query(ancestor=conf_key).filter(Session.typeOfSession == request.typeOfSession)
+        # return set of SessionForm objects per Speaker
+        return SessionForms(
+            items=[self._copySessionToForm(s) for s in sessions]
+        )
 
 
 # - - - Speaker objects - - - - - - - - - - - - - - - - - - -
